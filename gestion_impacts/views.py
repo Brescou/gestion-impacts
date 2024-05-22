@@ -1,7 +1,7 @@
 from netbox.views import generic
 
 from .filtersets import ImpactFilterSet
-from .forms import ImpactForm, ImpactBulkImportForm
+from .forms import ImpactForm, ImpactBulkImportForm, ImpactBulkEditForm
 from .models import Impact
 from .tables import ImpactTable
 
@@ -32,6 +32,11 @@ class ImpactBulkImportView(generic.BulkImportView):
 
 class ImpactBulkEditView(generic.BulkEditView):
     queryset = Impact.objects.all()
-    model_form = ImpactForm
+    form = ImpactBulkEditForm
     table = ImpactTable
     filterset = ImpactFilterSet
+
+
+class ImpactBulkDeleteView(generic.BulkDeleteView):
+    queryset = Impact.objects.all()
+    table = ImpactTable
