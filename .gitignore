@@ -192,3 +192,5 @@ cython_debug/
 # Zeppelin ignored files
 /ZeppelinRemoteNotebooks/
 
+.idea/
+.idea/*
