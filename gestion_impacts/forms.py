@@ -1,6 +1,6 @@
 from dcim.models import Device
 from django import forms
-from ipam.models import IPAddress
+from ipam.models import IPAddress, VRF
 from netbox.forms import NetBoxModelForm, NetBoxModelImportForm, NetBoxModelBulkEditForm
 from utilities.forms.fields import DynamicModelChoiceField
 from virtualization.models import VirtualMachine
@@ -8,17 +8,19 @@ from virtualization.models import VirtualMachine
 from .models import Impact
 
 
-# TODO BULK IMPORT CSV / Direct Import , ; or \t
 
 class ImpactForm(NetBoxModelForm):
     class Meta:
         model = Impact
-        fields = ('name', 'redundancy', 'device', 'ip_address', 'vm')
+        fields = ('impact', 'description', 'redundancy', 'device', 'ip_address', 'vm', 'vrf')
 
+    impact = forms.CharField(required=True)
+    description = forms.CharField(widget=forms.Textarea, required=False)
+    redundancy = forms.BooleanField(required=False)
     device = DynamicModelChoiceField(queryset=Device.objects.all(), required=False)
     ip_address = DynamicModelChoiceField(queryset=IPAddress.objects.all(), required=False)
     vm = DynamicModelChoiceField(queryset=VirtualMachine.objects.all(), required=False)
-    redundancy = forms.BooleanField(required=False)
+    vrf = DynamicModelChoiceField(queryset=VRF.objects.all(), required=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -38,7 +40,7 @@ class ImpactForm(NetBoxModelForm):
 class ImpactBulkImportForm(NetBoxModelImportForm):
     class Meta:
         model = Impact
-        fields = ('name', 'redundancy', 'device', 'ip_address', 'vm')
+        fields = ('impact', 'redundancy', 'device', 'ip_address', 'vm')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -60,7 +62,7 @@ class ImpactBulkImportForm(NetBoxModelImportForm):
 
 class ImpactBulkEditForm(NetBoxModelBulkEditForm):
     model = Impact
-    name = forms.CharField(required=False)
+    impact = forms.CharField(required=False)
     redundancy = forms.BooleanField(required=False)
     device = DynamicModelChoiceField(queryset=Device.objects.all(), required=False)
     ip_address = DynamicModelChoiceField(queryset=IPAddress.objects.all(), required=False)
