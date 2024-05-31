@@ -6,4 +6,4 @@ from gestion_impacts.models import Impact
 class ImpactSerializer(NetBoxModelSerializer):
     class Meta:
         model = Impact
-        fields = ('id', 'name', 'redundancy', 'device', 'ip_address', 'vm')
+        fields = ('id', 'impact', 'redundancy', 'ip_address', 'vrf')
