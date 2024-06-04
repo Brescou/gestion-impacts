@@ -1,0 +1,9 @@
+{% extends 'generic/_base.html' %}
+{% load django_tables2 %}
+
+{% block content %}
+  <h1>Impact List</h1>
+  {% render_table table %}
+  <h2>Debug Information</h2>
+  <pre>{{ query }}</pre>
+{% endblock %}
