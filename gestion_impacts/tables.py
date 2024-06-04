@@ -1,19 +1,22 @@
 import django_tables2 as tables
-from django_tables2.utils import Accessor
+from ipam.models import IPAddress
 from netbox.tables import NetBoxTable
 
-from .models import Impact
+from gestion_impacts.models import Impact
 
 
 class ImpactTable(NetBoxTable):
-    ip_address = tables.Column(accessor=Accessor("ipaddress__address"), verbose_name='Adresse IP', linkify=True)
-    vrf = tables.Column(accessor=Accessor('vrf__name'), verbose_name='VRF', linkify=True)
-    role = tables.Column(accessor='ipaddress__role', verbose_name='Rôle', linkify=True)
+    ip_address = tables.Column(accessor='ip_address', verbose_name='IP Address')
+    vrf_name = tables.Column(accessor='vrf_name', verbose_name='VRF Name')
+    device_name = tables.Column(accessor='device_name', verbose_name='Device Name')
+    vm_name = tables.Column(accessor='vm_name', verbose_name='VM Name')
+    assigned_to = tables.Column(accessor='assigned_to', verbose_name='Assigned To')
     impact = tables.Column(accessor='impact', verbose_name='Impact')
-    assigned_to = tables.Column(accessor='assigned_to', verbose_name='Attribuer',linkify=True)
-    redundancy = tables.Column(verbose_name='Redondance')
+    redundancy = tables.Column(accessor='redundancy', verbose_name='Redundancy')
 
-    class Meta(NetBoxTable.Meta):
-        model = Impact
-        fields = ('ip_address', 'vrf', 'role', 'assigned_to', 'impact', 'assigned_to', 'redundancy')
-        default_columns = ('ip_address', 'vrf', 'role', 'assigned_to', 'impact', 'assigned_to', 'redundancy')
+    class Meta:
+        model = IPAddress
+        fields = ('ip_address', 'vrf_name', 'device_name', 'vm_name', 'assigned_to', 'impact', 'redundancy')
+        attrs = {
+            'class': 'table table-striped table-bordered'
+        }
