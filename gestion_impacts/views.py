@@ -21,12 +21,10 @@ class ImpactListView(generic.ObjectListView):
         interfaces__ip_addresses=OuterRef('pk')
     ).values('name')[:1]
 
-    # Subquery to get the virtual machine name from VMInterface
     vm_name_subquery = VirtualMachine.objects.filter(
         interfaces__ip_addresses=OuterRef('pk')
     ).values('name')[:1]
 
-    # Subquery to get the impact details
     impact_subquery = Impact.objects.filter(
         ip_address=OuterRef('pk')
     ).values('impact')[:1]
@@ -34,6 +32,7 @@ class ImpactListView(generic.ObjectListView):
     redundancy_subquery = Impact.objects.filter(
         ip_address=OuterRef('pk')
     ).values('redundancy')[:1]
+
     queryset = IPAddress.objects.annotate(
         ip_address=F('address'),
         vrf_name=F('vrf__name'),
@@ -47,21 +46,20 @@ class ImpactListView(generic.ObjectListView):
         ),
         impact=Subquery(impact_subquery, output_field=CharField()),
         redundancy=Subquery(redundancy_subquery, output_field=CharField())
-    ).select_related(
-        'vrf',
-    ).filter(
+    ).select_related('vrf').filter(
         Q(assigned_object_type__model='interface', assigned_object_type__app_label='dcim') |
         Q(assigned_object_type__model='vminterface', assigned_object_type__app_label='virtualization') |
         Q(assigned_object_id__isnull=True)
     )
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['query'] = str(self.get_queryset().query)  # For debugging
-        return context
-
     table = ImpactTable
     template_name = 'gestion_impacts/impact_list.html'
+    paginate_by = 25
+
+    def get_queryset(self, request):
+        return self.queryset
+
+
 
 
 class ImpactEditView(generic.ObjectEditView):
@@ -89,27 +87,3 @@ class ImpactBulkEditView(generic.BulkEditView):
 class ImpactBulkDeleteView(generic.BulkDeleteView):
     queryset = Impact.objects.all()
     table = ImpactTable
-
-    # queryset = IPAddress.objects.annotate(
-    #     cf_nom_long=ExpressionWrapper(
-    #         Func(F('custom_field_data'), Value('nom_long'), function='jsonb_extract_path_text'),
-    #         output_field=CharField()
-    #     )
-    # ).annotate(
-    #     assigned_to=Case(
-    #         When(
-    #             assigned_object_type=ContentType.objects.get_for_model(Interface),
-    #             then=Subquery(
-    #                 Interface.objects.filter(pk=OuterRef('assigned_object_id')).values('device__name')[:1]
-    #             )
-    #         ),
-    #         When(
-    #             assigned_object_type=ContentType.objects.get_for_model(VMInterface),
-    #             then=Subquery(
-    #                 VMInterface.objects.filter(pk=OuterRef('assigned_object_id')).values('virtual_machine__name')[:1]
-    #             )
-    #         ),
-    #         default=F('cf_nom_long'),
-    #         output_field=CharField(),
-    #     )
-    # )

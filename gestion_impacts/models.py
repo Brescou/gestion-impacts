@@ -18,13 +18,3 @@ class Impact(NetBoxModel):
         return reverse('plugins:gestion_impacts:impact', args=[self.pk])
 
 
-# class ViewImpactIPAddress(models.Model):
-#     impact_id = models.IntegerField(primary_key=True)
-#     impact = models.TextField()
-#     redundancy = models.BooleanField()
-#     ip_address = models.CharField(max_length=15)
-#     vrf = models.CharField(max_length=100)
-#
-#     class Meta:
-#         managed = False
-#         db_table = 'view_impact_ipaddress'
