@@ -1,13 +1,19 @@
+from core.models import ObjectType
 from dcim.models import Device
 from django.db.models import F, Value, CharField, Q, OuterRef, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Coalesce
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404, render
+from extras.models import ExportTemplate
 from ipam.models import IPAddress
 from netbox.views import generic
+from netbox.views.generic.utils import get_prerequisite_model
+from utilities.htmx import htmx_partial
 from virtualization.models import VirtualMachine
 
 from .filtersets import ImpactFilterSet
-from .forms import ImpactForm, ImpactBulkImportForm, ImpactBulkEditForm
+from .forms import ImpactForm, ImpactBulkImportForm, ImpactBulkEditForm, ImpactIpAddressFilterSetForm
 from .models import Impact
 from .tables import ImpactTable
 
@@ -53,13 +59,86 @@ class ImpactListView(generic.ObjectListView):
     )
 
     table = ImpactTable
-    template_name = 'gestion_impacts/impact_list.html'
-    paginate_by = 25
+    filterset = ImpactFilterSet
+    filterset_form = ImpactIpAddressFilterSetForm
 
     def get_queryset(self, request):
-        return self.queryset
+        queryset = super().get_queryset(request)
+        return self.filterset(self.request.GET, queryset=queryset).qs
 
+    def get(self, request):
+        """
+        GET request handler.
 
+        Args:
+            request: The current request
+        """
+        model = self.queryset.model
+        object_type = ObjectType.objects.get_for_model(model)
+
+        if self.filterset:
+            self.queryset = self.filterset(request.GET, self.queryset, request=request).qs
+
+        # Determine the available actions
+        actions = self.get_permitted_actions(request.user)
+        has_bulk_actions = any([a.startswith('bulk_') for a in actions])
+
+        if 'export' in request.GET:
+
+            # Export the current table view
+            if request.GET['export'] == 'table':
+                table = self.get_table(self.queryset, request, has_bulk_actions)
+                columns = [name for name, _ in table.selected_columns]
+                return self.export_table(table, columns)
+
+            # Render an ExportTemplate
+            elif request.GET['export']:
+                template = get_object_or_404(ExportTemplate, object_types=object_type, name=request.GET['export'])
+                return self.export_template(template, request)
+
+            # Check for YAML export support on the model
+            elif hasattr(model, 'to_yaml'):
+                response = HttpResponse(self.export_yaml(), content_type='text/yaml')
+                filename = 'netbox_{}.yaml'.format(self.queryset.model._meta.verbose_name_plural)
+                response['Content-Disposition'] = 'attachment; filename="{}"'.format(filename)
+                return response
+
+            # Fall back to default table/YAML export
+            else:
+                table = self.get_table(self.queryset, request, has_bulk_actions)
+                return self.export_table(table)
+
+        # Render the objects table
+        table = self.get_table(self.queryset, request, has_bulk_actions)
+
+        # If this is an HTMX request, return only the rendered table HTML
+        if htmx_partial(request):
+            if not request.htmx.target:
+                table.embedded = True
+                # Hide selection checkboxes
+                if 'pk' in table.base_columns:
+                    table.columns.hide('pk')
+            return render(request, 'htmx/table.html', {
+                'table': table,
+            })
+
+        action_to_remove = ['bulk_import', 'add', 'import']
+        for action in action_to_remove:
+            if action in actions:
+                actions.remove(action)
+
+        model._meta.verbose_name_plural = 'Gestion des impacts'
+
+        context = {
+            'model': model,
+            'table': table,
+            'actions': actions,
+            'filter_form': self.filterset_form(request.GET, label_suffix='') if self.filterset_form else None,
+            'prerequisite_model': get_prerequisite_model(self.queryset),
+            **self.get_extra_context(request),
+        }
+
+        return render(request, self.template_name, context)
 
 
 class ImpactEditView(generic.ObjectEditView):

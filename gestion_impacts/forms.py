@@ -1,10 +1,26 @@
 from dcim.models import Device
 from django import forms
 from ipam.models import IPAddress, VRF
-from netbox.forms import NetBoxModelForm, NetBoxModelImportForm, NetBoxModelBulkEditForm
+from netbox.forms import NetBoxModelForm, NetBoxModelImportForm, NetBoxModelBulkEditForm, NetBoxModelFilterSetForm
 from utilities.forms.fields import DynamicModelChoiceField
+from virtualization.models import VirtualMachine
 
 from .models import Impact
+
+
+class ImpactIpAddressFilterSetForm(NetBoxModelFilterSetForm):
+    vrf = forms.ModelChoiceField(queryset=VRF.objects.all(), required=False)
+    model = IPAddress
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields.pop('cf_interface', None)
+        self.fields.pop('cf_source', None)
+        self.fields.pop('cf_redondance', None)
+        self.fields.pop('cf_impact_exploitation', None)
+        self.fields.pop('cf_nom_long', None)
+        self.custom_fields = None
+        self.custom_field_groups = None
 
 
 class ImpactForm(NetBoxModelForm):
