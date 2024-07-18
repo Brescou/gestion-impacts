@@ -21,9 +21,6 @@ class ImpactFilterSet(NetBoxModelFilterSet):
         }
 
     def search(self, queryset, name, value):
-        """
-        Override this method to apply a general-purpose search logic.
-        """
         return queryset.filter(
             Q(ip_address__icontains=value) |
             Q(impact__icontains=value) |

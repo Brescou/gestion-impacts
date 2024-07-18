@@ -44,14 +44,11 @@ class CustomActionsColumn(columns.ActionsColumn):
             permission = get_permission_for_model(model, attrs.permission)
             if attrs.permission is None or user.has_perm(permission):
                 # Customize the URL creation for 'edit' and 'delete' actions
-                if action in ['edit', 'delete']:
-                    if impact_id is not None:
-                        url = reverse(f'plugins:gestion_impacts:impact_{action}', kwargs={'pk': impact_id})
-                    else:
-                        # Redirect to the Impact creation view with the IP address as a parameter
-                        url = f"{reverse('plugins:gestion_impacts:impact_add')}?ip_address={record.pk}"
+                if impact_id is not None:
+                    url = reverse(f'plugins:gestion_impacts:impact_{action}', kwargs={'pk': impact_id})
                 else:
-                    url = reverse(get_viewname(model, action), kwargs={'pk': record.pk})
+                    # Redirect to the Impact creation view with the IP address as a parameter
+                    url = f"{reverse('plugins:gestion_impacts:impact_add')}?ip_address={record.pk}"
 
                 # Render a separate button if a) only one action exists, or b) if split_actions is True
                 if len(self.actions) == 1 or (self.split_actions and idx == 0):

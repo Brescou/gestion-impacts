@@ -1,14 +1,26 @@
+import logging
+
 from core.models import ObjectType
 from dcim.models import Device
+from django.contrib import messages
+from django.contrib.contenttypes.fields import GenericRel
+from django.core.exceptions import FieldDoesNotExist
+from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import F, Value, CharField, Q, OuterRef, Subquery
+from django.db.models import ManyToManyField
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.fields.reverse_related import ManyToManyRel
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, render, redirect
 from extras.models import ExportTemplate
+from extras.signals import clear_events
 from ipam.models import IPAddress
 from netbox.views import generic
 from netbox.views.generic.utils import get_prerequisite_model
+from utilities.exceptions import AbortRequest, PermissionsViolation
+from utilities.forms import restrict_form_fields
 from utilities.htmx import htmx_partial
 from virtualization.models import VirtualMachine
 
@@ -22,7 +34,7 @@ class ImpactView(generic.ObjectView):
     queryset = Impact.objects.all()
 
 
-class ImpactListView(generic.ObjectListView):
+def get_ip_address_queryset():
     device_name_subquery = Device.objects.filter(
         interfaces__ip_addresses=OuterRef('pk')
     ).values('name')[:1]
@@ -44,6 +56,9 @@ class ImpactListView(generic.ObjectListView):
         vrf_name=F('vrf__name'),
         device_name=Subquery(device_name_subquery, output_field=CharField()),
         vm_name=Subquery(vm_name_subquery, output_field=CharField()),
+        impact_id=Subquery(
+            Impact.objects.filter(ip_address=OuterRef('pk')).values('id')[:1]
+        ),
         assigned_to=Coalesce(
             Subquery(device_name_subquery, output_field=CharField()),
             Subquery(vm_name_subquery, output_field=CharField()),
@@ -57,8 +72,14 @@ class ImpactListView(generic.ObjectListView):
         Q(assigned_object_type__model='vminterface', assigned_object_type__app_label='virtualization') |
         Q(assigned_object_id__isnull=True)
     )
+    return queryset
+
+
+class ImpactListView(generic.ObjectListView):
+    queryset = get_ip_address_queryset()
 
     table = ImpactTable
+    template_name = 'gestion_impacts/impact_list.html'
     filterset = ImpactFilterSet
     filterset_form = ImpactIpAddressFilterSetForm
 
@@ -67,51 +88,38 @@ class ImpactListView(generic.ObjectListView):
         return self.filterset(self.request.GET, queryset=queryset).qs
 
     def get(self, request):
-        """
-        GET request handler.
-
-        Args:
-            request: The current request
-        """
         model = self.queryset.model
         object_type = ObjectType.objects.get_for_model(model)
 
         if self.filterset:
             self.queryset = self.filterset(request.GET, self.queryset, request=request).qs
 
-        # Determine the available actions
         actions = self.get_permitted_actions(request.user)
         has_bulk_actions = any([a.startswith('bulk_') for a in actions])
 
         if 'export' in request.GET:
 
-            # Export the current table view
             if request.GET['export'] == 'table':
                 table = self.get_table(self.queryset, request, has_bulk_actions)
                 columns = [name for name, _ in table.selected_columns]
                 return self.export_table(table, columns)
 
-            # Render an ExportTemplate
             elif request.GET['export']:
                 template = get_object_or_404(ExportTemplate, object_types=object_type, name=request.GET['export'])
                 return self.export_template(template, request)
 
-            # Check for YAML export support on the model
             elif hasattr(model, 'to_yaml'):
                 response = HttpResponse(self.export_yaml(), content_type='text/yaml')
                 filename = 'netbox_{}.yaml'.format(self.queryset.model._meta.verbose_name_plural)
                 response['Content-Disposition'] = 'attachment; filename="{}"'.format(filename)
                 return response
 
-            # Fall back to default table/YAML export
             else:
                 table = self.get_table(self.queryset, request, has_bulk_actions)
                 return self.export_table(table)
 
-        # Render the objects table
         table = self.get_table(self.queryset, request, has_bulk_actions)
 
-        # If this is an HTMX request, return only the rendered table HTML
         if htmx_partial(request):
             if not request.htmx.target:
                 table.embedded = True
@@ -131,6 +139,7 @@ class ImpactListView(generic.ObjectListView):
 
         context = {
             'model': model,
+            'extra_model': Impact(),
             'table': table,
             'actions': actions,
             'filter_form': self.filterset_form(request.GET, label_suffix='') if self.filterset_form else None,
@@ -157,10 +166,139 @@ class ImpactBulkImportView(generic.BulkImportView):
 
 
 class ImpactBulkEditView(generic.BulkEditView):
-    queryset = Impact.objects.all()
+    queryset = get_ip_address_queryset()
+
     form = ImpactBulkEditForm
     table = ImpactTable
     filterset = ImpactFilterSet
+
+    def _update_objects(self, form, request):
+        custom_fields = getattr(form, 'custom_fields', {})
+        standard_fields = [
+            field for field in form.fields if field not in list(custom_fields) + ['pk']
+        ]
+        nullified_fields = request.POST.getlist('_nullify')
+        updated_objects = []
+        model_fields = {}
+        m2m_fields = {}
+
+        # Build list of model fields and m2m fields for later iteration
+        for name in standard_fields:
+            try:
+                model_field = Impact._meta.get_field(name)
+                if isinstance(model_field, (ManyToManyField, ManyToManyRel)):
+                    m2m_fields[name] = model_field
+                elif isinstance(model_field, GenericRel):
+                    continue
+                else:
+                    model_fields[name] = model_field
+            except FieldDoesNotExist:
+                model_fields[name] = None
+
+        for obj in self.queryset.filter(pk__in=form.cleaned_data['pk']):
+            # Get or create the Impact object for each IP address
+            impact, created = Impact.objects.get_or_create(ip_address=obj)
+
+            # Take a snapshot of change-logged models
+            if hasattr(impact, 'snapshot'):
+                impact.snapshot()
+
+            # Update standard fields
+            for name, model_field in model_fields.items():
+                if name in form.nullable_fields and name in nullified_fields:
+                    setattr(impact, name, None if model_field.null else '')
+                elif name in form.changed_data:
+                    setattr(impact, name, form.cleaned_data[name])
+
+            # Update custom fields
+            for name, customfield in custom_fields.items():
+                assert name.startswith('cf_')
+                cf_name = name[3:]
+                if name in form.nullable_fields and name in nullified_fields:
+                    impact.custom_field_data[cf_name] = None
+                elif name in form.changed_data:
+                    impact.custom_field_data[cf_name] = customfield.serialize(form.cleaned_data[name])
+
+            impact.full_clean()
+            impact.save()
+            updated_objects.append(impact)
+
+            # Handle M2M fields after save
+            for name, m2m_field in m2m_fields.items():
+                if name in form.nullable_fields and name in nullified_fields:
+                    getattr(impact, name).clear()
+                elif form.cleaned_data[name]:
+                    getattr(impact, name).set(form.cleaned_data[name])
+
+            # Add/remove tags
+            if form.cleaned_data.get('add_tags', None):
+                impact.tags.add(*form.cleaned_data['add_tags'])
+            if form.cleaned_data.get('remove_tags', None):
+                impact.tags.remove(*form.cleaned_data['remove_tags'])
+
+        return updated_objects
+
+    def post(self, request, **kwargs):
+        logger = logging.getLogger('netbox.views.BulkEditView')
+        model = IPAddress
+
+        if request.POST.get('_all') and self.filterset is not None:
+            pk_list = self.filterset(request.GET, self.queryset.values_list('pk', flat=True), request=request).qs
+        else:
+            pk_list = request.POST.getlist('pk')
+
+        initial_data = {'pk': pk_list}
+
+        if '_apply' in request.POST:
+            form = self.form(request.POST, initial=initial_data)
+            restrict_form_fields(form, request.user)
+
+            if form.is_valid():
+                logger.debug("Form validation was successful")
+
+                try:
+                    with transaction.atomic():
+                        updated_objects = self._update_objects(form, request)
+
+                        object_count = Impact.objects.filter(pk__in=[obj.pk for obj in updated_objects]).count()
+                        if object_count != len(updated_objects):
+                            raise PermissionsViolation
+
+                    if updated_objects:
+                        msg = f'Updated {len(updated_objects)} {model._meta.verbose_name_plural}'
+                        logger.info(msg)
+                        messages.success(self.request, msg)
+
+                    return redirect(self.get_return_url(request))
+
+                except ValidationError as e:
+                    messages.error(self.request, ", ".join(e.messages))
+                    clear_events.send(sender=self)
+
+                except (AbortRequest, PermissionsViolation) as e:
+                    logger.debug(e.message)
+                    form.add_error(None, e.message)
+                    clear_events.send(sender=self)
+
+            else:
+                logger.debug("Form validation failed")
+
+        else:
+            form = self.form(initial=initial_data)
+            restrict_form_fields(form, request.user)
+
+        table = self.table(self.queryset.filter(pk__in=pk_list), orderable=False)
+        if not table.rows:
+            messages.warning(request, f"No {model._meta.verbose_name_plural} were selected.")
+            return redirect(self.get_return_url(request))
+
+        return render(request, self.template_name, {
+            'model': model,
+            'form': form,
+            'table': table,
+            'return_url': self.get_return_url(request),
+            **self.get_extra_context(request),
+        })
 
 
 class ImpactBulkDeleteView(generic.BulkDeleteView):

@@ -1,9 +1,7 @@
-from dcim.models import Device
 from django import forms
 from ipam.models import IPAddress, VRF
 from netbox.forms import NetBoxModelForm, NetBoxModelImportForm, NetBoxModelBulkEditForm, NetBoxModelFilterSetForm
 from utilities.forms.fields import DynamicModelChoiceField
-from virtualization.models import VirtualMachine
 
 from .models import Impact
 
@@ -75,12 +73,6 @@ class ImpactBulkEditForm(NetBoxModelBulkEditForm):
     model = Impact
     impact = forms.CharField(required=False)
     redundancy = forms.BooleanField(required=False)
-    # device = DynamicModelChoiceField(queryset=Device.objects.all(), required=False)
-    ip_address = DynamicModelChoiceField(queryset=IPAddress.objects.all(), required=False)
-
-    # vm = DynamicModelChoiceField(queryset=VirtualMachine.objects.all(), required=False)
-
-    # nullable_fields = ('device', 'ip_address', 'vm')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -99,19 +91,3 @@ class ImpactBulkEditForm(NetBoxModelBulkEditForm):
     #         raise forms.ValidationError('You cannot select more than one of device, IP address, or VM.')
     #
     #     return cleaned_data
-
-    # def save(self, commit=True):
-    #     instances = super().save(commit=False)
-    #     for instance in instances:
-    #         if self.cleaned_data.get('device'):
-    #             instance.ip_address = None
-    #             instance.vm = None
-    #         elif self.cleaned_data.get('ip_address'):
-    #             instance.device = None
-    #             instance.vm = None
-    #         elif self.cleaned_data.get('vm'):
-    #             instance.device = None
-    #             instance.ip_address = None
-    #         if commit:
-    #             instance.save()
-    #     return instances

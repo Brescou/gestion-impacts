@@ -1,7 +1,8 @@
 from django.urls import path
 from netbox.views.generic import ObjectChangeLogView
-
 from . import views, models
+
+app_name = 'gestion_impacts'
 
 urlpatterns = [
     path('impacts/', views.ImpactListView.as_view(), name='impact_list'),
