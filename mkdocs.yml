@@ -1,0 +1,5 @@
+site_name: Gestion Des Impacts
+theme: material
+nav:
+  - Accueil: models/gestion_impacts/impact.md
+

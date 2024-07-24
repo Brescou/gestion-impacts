@@ -14,14 +14,14 @@ gestion_impacts_import_button = PluginMenuButton(
 
 menu_impacts = PluginMenuItem(
     link='plugins:gestion_impacts:impact_list',
-    link_text='Gestion des impacts',
+    link_text='Impacts',
     buttons=(gestion_impacts_button, gestion_impacts_import_button),
 )
 
 menu = PluginMenu(
     label='Gestion des impacts',
     groups=(
-        ('Impacts', (menu_impacts,)),
+        ('', (menu_impacts,)),
     ),
-    icon_class='mdi mdi-filter'
+    icon_class='mdi mdi-alert'
 )

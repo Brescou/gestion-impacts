@@ -6,7 +6,6 @@ from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from netbox.tables import columns
 from utilities.permissions import get_permission_for_model
-from utilities.views import get_viewname
 
 from gestion_impacts.models import Impact
 
@@ -21,7 +20,7 @@ class CustomActionsColumn(columns.ActionsColumn):
         model = table.Meta.model
         if request := getattr(table, 'context', {}).get('request'):
             return_url = request.GET.get('return_url', request.get_full_path())
-            url_appendix = f'?return_url={quote(return_url)}'
+            url_appendix = f'return_url={quote(return_url)}'
         else:
             url_appendix = ''
 
@@ -45,10 +44,13 @@ class CustomActionsColumn(columns.ActionsColumn):
             if attrs.permission is None or user.has_perm(permission):
                 # Customize the URL creation for 'edit' and 'delete' actions
                 if impact_id is not None:
-                    url = reverse(f'plugins:gestion_impacts:impact_{action}', kwargs={'pk': impact_id})
+                    url = f"{reverse(
+                        f'plugins:gestion_impacts:impact_{action}',
+                        kwargs={'pk': impact_id})}?assigned_to={record.assigned_to}&"
                 else:
                     # Redirect to the Impact creation view with the IP address as a parameter
-                    url = f"{reverse('plugins:gestion_impacts:impact_add')}?ip_address={record.pk}"
+                    url = f"{reverse(
+                        'plugins:gestion_impacts:impact_add')}?ip_address={record.pk}&assigned_to={record.assigned_to}&"
 
                 # Render a separate button if a) only one action exists, or b) if split_actions is True
                 if len(self.actions) == 1 or (self.split_actions and idx == 0):

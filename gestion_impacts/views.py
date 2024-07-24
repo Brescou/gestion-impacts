@@ -14,6 +14,8 @@ from django.db.models.fields.reverse_related import ManyToManyRel
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render, redirect
+from django.utils.html import escape
+from django.utils.safestring import mark_safe
 from extras.models import ExportTemplate
 from extras.signals import clear_events
 from ipam.models import IPAddress
@@ -22,10 +24,11 @@ from netbox.views.generic.utils import get_prerequisite_model
 from utilities.exceptions import AbortRequest, PermissionsViolation
 from utilities.forms import restrict_form_fields
 from utilities.htmx import htmx_partial
+from utilities.querydict import prepare_cloned_fields, normalize_querydict
 from virtualization.models import VirtualMachine
 
 from .filtersets import ImpactFilterSet
-from .forms import ImpactForm, ImpactBulkImportForm, ImpactBulkEditForm, ImpactIpAddressFilterSetForm
+from .forms import ImpactForm, ImpactBulkEditForm, ImpactIpAddressFilterSetForm
 from .models import Impact
 from .tables import ImpactTable
 
@@ -153,16 +156,100 @@ class ImpactListView(generic.ObjectListView):
 class ImpactEditView(generic.ObjectEditView):
     queryset = Impact.objects.all()
     form = ImpactForm
+    template_name = 'gestion_impacts/impact_edit.html'
+
+    def get(self, request, *args, **kwargs):
+
+        obj = self.get_object(**kwargs)
+        obj = self.alter_object(obj, request, args, kwargs)
+        model = self.queryset.model
+
+        initial_data = normalize_querydict(request.GET)
+        form = self.form(instance=obj, initial=initial_data)
+        restrict_form_fields(form, request.user)
+
+        return render(request, self.template_name, {
+            'model': model,
+            'object': obj,
+            'form': form,
+            'return_url': self.get_return_url(request, obj),
+            'prerequisite_model': get_prerequisite_model(self.queryset),
+            "assigned_to": request.GET.get('assigned_to'),
+            **self.get_extra_context(request, obj),
+        })
+
+    def post(self, request, *args, **kwargs):
+
+        logger = logging.getLogger('netbox.views.ObjectEditView')
+        obj = self.get_object(**kwargs)
+
+        # Take a snapshot for change logging (if editing an existing object)
+        if obj.pk and hasattr(obj, 'snapshot'):
+            obj.snapshot()
+
+        obj = self.alter_object(obj, request, args, kwargs)
+
+        form = self.form(data=request.POST, files=request.FILES, instance=obj)
+        restrict_form_fields(form, request.user)
+
+        if form.is_valid():
+            logger.debug("Form validation was successful")
+
+            try:
+                with transaction.atomic():
+                    object_created = form.instance.pk is None
+                    obj = form.save(ip_address=request.GET.get('ip_address'))
+
+                    # Check that the new object conforms with any assigned object-level permissions
+                    if not self.queryset.filter(pk=obj.pk).exists():
+                        raise PermissionsViolation()
+
+                msg = '{} {}'.format(
+                    'Created' if object_created else 'Modified',
+                    self.queryset.model._meta.verbose_name
+                )
+                logger.info(f"{msg} {obj} (PK: {obj.pk})")
+                if hasattr(obj, 'get_absolute_url'):
+                    msg = mark_safe(f'{msg} <a href="{obj.get_absolute_url()}">{escape(obj)}</a>')
+                else:
+                    msg = f'{msg} {obj}'
+                messages.success(request, msg)
+
+                if '_addanother' in request.POST:
+                    redirect_url = request.path
+
+                    # If cloning is supported, pre-populate a new instance of the form
+                    params = prepare_cloned_fields(obj)
+                    params.update(self.get_extra_addanother_params(request))
+                    if params:
+                        if 'return_url' in request.GET:
+                            params['return_url'] = request.GET.get('return_url')
+                        redirect_url += f"?{params.urlencode()}"
+
+                    return redirect(redirect_url)
+
+                return_url = self.get_return_url(request, obj)
+
+                return redirect(return_url)
+
+            except (AbortRequest, PermissionsViolation) as e:
+                logger.debug(e.message)
+                form.add_error(None, e.message)
+                clear_events.send(sender=self)
+
+        else:
+            logger.debug("Form validation failed")
+
+        return render(request, self.template_name, {
+            'object': obj,
+            'form': form,
+            'return_url': self.get_return_url(request, obj),
+            **self.get_extra_context(request, obj),
+        })
 
 
 class ImpactDeleteView(generic.ObjectDeleteView):
     queryset = Impact.objects.all()
-
-
-class ImpactBulkImportView(generic.BulkImportView):
-    queryset = Impact.objects.all()
-    model_form = ImpactBulkImportForm
-    table = ImpactTable
 
 
 class ImpactBulkEditView(generic.BulkEditView):

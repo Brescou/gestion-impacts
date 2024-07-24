@@ -13,7 +13,7 @@ class ImpactTable(NetBoxTable):
     vm_name = tables.Column(accessor='vm_name', verbose_name='VM')
     assigned_to = tables.Column(accessor='assigned_to', verbose_name=_('name'))
     impact = tables.Column(accessor='impact', verbose_name='Impact')
-    redundancy = tables.Column(accessor='redundancy', verbose_name='Redondance')
+    redundancy = tables.Column(accessor='redundancy', verbose_name=_('Redundancy'))
 
     # Use the custom actions column
     actions = CustomActionsColumn()
