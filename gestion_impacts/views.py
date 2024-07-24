@@ -378,6 +378,10 @@ class ImpactBulkEditView(generic.BulkEditView):
         if not table.rows:
             messages.warning(request, f"No {model._meta.verbose_name_plural} were selected.")
             return redirect(self.get_return_url(request))
+        columns_to_remove = ['device_name', 'vm_name', 'actions']
+        for column in columns_to_remove:
+            if column in table.base_columns:
+                table.columns.hide(column)
 
         return render(request, self.template_name, {
             'model': model,
