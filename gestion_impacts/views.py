@@ -54,7 +54,7 @@ def get_ip_address_queryset():
         ip_address=OuterRef('pk')
     ).values('redundancy')[:1]
 
-    queryset = IPAddress.objects.annotate(
+    queryset = IPAddress.objects.filter(status='active').annotate(
         ip_address=F('address'),
         vrf_name=F('vrf__name'),
         device_name=Subquery(device_name_subquery, output_field=CharField()),
@@ -197,29 +197,29 @@ class ImpactEditView(generic.ObjectEditView):
             try:
                 with transaction.atomic():
                     object_created = form.instance.pk is None
-
-                    ip_address_id = request.GET.get('ip_address')
-                    if not ip_address_id:
-                        messages.error(request, "No IP address specified")
-                        return render(request, self.template_name, {
-                            'object': obj,
-                            'form': form,
-                            'return_url': self.get_return_url(request, obj),
-                            **self.get_extra_context(request, obj),
-                        })
-
-                    ip_address = IPAddress.objects.filter(pk=ip_address_id).first()
-
-                    if not ip_address or not ip_address.vrf:
-                        messages.error(request, "IP address not found" if not ip_address else "IP address has no VRF")
-                        return render(request, self.template_name, {
-                            'object': obj,
-                            'form': form,
-                            'return_url': self.get_return_url(request, obj),
-                            **self.get_extra_context(request, obj),
-                        })
-
-                    obj = form.save(ip_address=ip_address)
+                    if object_created:
+                        ip_address_id = request.GET.get('ip_address')
+                        if not ip_address_id:
+                            messages.error(request, "No IP address specified")
+                            return render(request, self.template_name, {
+                                'object': obj,
+                                'form': form,
+                                'return_url': self.get_return_url(request, obj),
+                                **self.get_extra_context(request, obj),
+                            })
+                        ip_address = IPAddress.objects.filter(pk=ip_address_id).first()
+                        if not ip_address or not ip_address.vrf:
+                            messages.error(request,
+                                           "IP address not found" if not ip_address else "IP address has no VRF")
+                            return render(request, self.template_name, {
+                                'object': obj,
+                                'form': form,
+                                'return_url': self.get_return_url(request, obj),
+                                **self.get_extra_context(request, obj),
+                            })
+                        obj = form.save(ip_address=ip_address)
+                    else:
+                        obj = form.save()
 
                     # Check that the new object conforms with any assigned object-level permissions
                     if not self.queryset.filter(pk=obj.pk).exists():
@@ -374,7 +374,7 @@ class ImpactBulkEditView(generic.BulkEditView):
                             raise PermissionsViolation
 
                     if updated_objects:
-                        msg = f'Updated {len(updated_objects)} {model._meta.verbose_name_plural}'
+                        msg = f'Updated {len(updated_objects)} Impacts'
                         logger.info(msg)
                         messages.success(self.request, msg)
 
