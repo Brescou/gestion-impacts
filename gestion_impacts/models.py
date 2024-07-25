@@ -13,7 +13,7 @@ class Impact(NetBoxModel):
     vrf = models.ForeignKey('ipam.VRF', on_delete=models.CASCADE, null=True, blank=True)
 
     def __str__(self):
-        return self.impact
+        return f""
 
     def get_absolute_url(self):
         return reverse('plugins:gestion_impacts:impact', args=[self.pk])

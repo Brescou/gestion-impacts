@@ -1,6 +1,5 @@
 from django import forms
 from django.forms import ModelMultipleChoiceField
-from django.forms.utils import ErrorDict
 from ipam.models import IPAddress, VRF
 from jsonschema.exceptions import ValidationError
 from netbox.forms import NetBoxModelForm, NetBoxModelImportForm, NetBoxModelBulkEditForm, NetBoxModelFilterSetForm
@@ -28,7 +27,7 @@ class ImpactForm(NetBoxModelForm):
         model = Impact
         fields = ('impact', 'redundancy')
 
-    impact = forms.CharField(help_text='LL', required=True)
+    impact = forms.CharField(help_text='A remplir *', required=True)
     redundancy = forms.BooleanField(required=False)
 
     def __init__(self, *args, **kwargs):
@@ -45,13 +44,9 @@ class ImpactForm(NetBoxModelForm):
                 )
             )
         if commit:
-            address = IPAddress.objects.filter(pk=ip_address).first()
-            if not address:
-                raise ValueError("IP address not found")
-            self.instance.ip_address = address
-            if not address.vrf:
-                raise ValueError("IP address has no VRF")
-            self.instance.vrf = address.vrf
+            if ip_address:
+                self.instance.ip_address = ip_address
+                self.instance.vrf = ip_address.vrf
             self.instance.save()
             self._save_m2m()
         else:
@@ -71,24 +66,14 @@ class ImpactBulkImportForm(NetBoxModelImportForm):
 
 class IPAddressMultipleChoiceField(ModelMultipleChoiceField):
     def _check_values(self, value):
-        """
-        Given a list of possible PK values, return a QuerySet of the
-        corresponding objects. Raise a ValidationError if a given value is
-        invalid (not a valid PK, not in the queryset, etc.)
-        """
         key = self.to_field_name or "pk"
-        # Deduplicate given values to avoid creating many querysets or
-        # requiring the database backend to deduplicate efficiently.
         try:
             value = frozenset(value)
         except TypeError:
-            # list of lists isn't hashable, for example
             raise ValidationError(
                 self.error_messages["invalid_list"],
                 code="invalid_list",
             )
-
-        # Validate that each pk in value corresponds to an existing IPAddress
         valid_pks = set(IPAddress.objects.filter(pk__in=value).values_list('pk', flat=True))
         invalid_pks = value - {str(pk) for pk in valid_pks}
         if invalid_pks:
@@ -97,8 +82,6 @@ class IPAddressMultipleChoiceField(ModelMultipleChoiceField):
                 code="invalid_pk_value",
                 params={"pk": ", ".join(map(str, invalid_pks))}
             )
-
-        # Now return the IPAddress queryset filtering by IP addresses
         qs = IPAddress.objects.filter(pk__in=value)
         return qs
 
@@ -117,30 +100,4 @@ class ImpactBulkEditForm(NetBoxModelBulkEditForm):
         self.fields.pop('add_tags', None)
         self.fields.pop('remove_tags', None)
 
-    @property
-    def errors(self):
-        """Return an ErrorDict for the data provided for the form."""
-        if self._errors is None:
-            self.full_clean()
-        return self._errors
-
-    def is_valid(self):
-        """Return True if the form has no errors, or False otherwise."""
-        return self.is_bound and not self.errors
-
-    def full_clean(self):
-        """
-        Clean all of self.data and populate self._errors and self.cleaned_data.
-        """
-        self._errors = ErrorDict()
-        if not self.is_bound:  # Stop further processing.
-            return
-        self.cleaned_data = {}
-        # If the form is permitted to be empty, and none of the form data has
-        # changed from the initial data, short circuit any validation.
-        if self.empty_permitted and not self.has_changed():
-            return
-
-        self._clean_fields()
-        self._clean_form()
-        self._post_clean()
+    # vrf

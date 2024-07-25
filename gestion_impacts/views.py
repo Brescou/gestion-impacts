@@ -179,7 +179,6 @@ class ImpactEditView(generic.ObjectEditView):
         })
 
     def post(self, request, *args, **kwargs):
-
         logger = logging.getLogger('netbox.views.ObjectEditView')
         obj = self.get_object(**kwargs)
 
@@ -198,7 +197,29 @@ class ImpactEditView(generic.ObjectEditView):
             try:
                 with transaction.atomic():
                     object_created = form.instance.pk is None
-                    obj = form.save(ip_address=request.GET.get('ip_address'))
+
+                    ip_address_id = request.GET.get('ip_address')
+                    if not ip_address_id:
+                        messages.error(request, "No IP address specified")
+                        return render(request, self.template_name, {
+                            'object': obj,
+                            'form': form,
+                            'return_url': self.get_return_url(request, obj),
+                            **self.get_extra_context(request, obj),
+                        })
+
+                    ip_address = IPAddress.objects.filter(pk=ip_address_id).first()
+
+                    if not ip_address or not ip_address.vrf:
+                        messages.error(request, "IP address not found" if not ip_address else "IP address has no VRF")
+                        return render(request, self.template_name, {
+                            'object': obj,
+                            'form': form,
+                            'return_url': self.get_return_url(request, obj),
+                            **self.get_extra_context(request, obj),
+                        })
+
+                    obj = form.save(ip_address=ip_address)
 
                     # Check that the new object conforms with any assigned object-level permissions
                     if not self.queryset.filter(pk=obj.pk).exists():
@@ -236,6 +257,7 @@ class ImpactEditView(generic.ObjectEditView):
                 logger.debug(e.message)
                 form.add_error(None, e.message)
                 clear_events.send(sender=self)
+                messages.error(request, e.message)
 
         else:
             logger.debug("Form validation failed")
@@ -284,7 +306,7 @@ class ImpactBulkEditView(generic.BulkEditView):
 
         for obj in self.queryset.filter(pk__in=form.cleaned_data['pk']):
             # Get or create the Impact object for each IP address
-            impact, created = Impact.objects.get_or_create(ip_address=obj)
+            impact, created = Impact.objects.get_or_create(ip_address=obj, vrf=obj.vrf)
 
             # Take a snapshot of change-logged models
             if hasattr(impact, 'snapshot'):
