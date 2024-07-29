@@ -1,0 +1,8 @@
+{% extends 'generic/object_edit.html' %}
+
+{% block title %}
+    {{ block.super }}
+    {% if assigned_to %}
+        - {{ assigned_to }}
+    {% endif %}
+{% endblock %}
